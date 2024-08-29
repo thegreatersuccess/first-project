@@ -4,13 +4,20 @@ module.exports = async (req,res,next) => {
         return next()
     }
 
+    const options = {
+        ratio: 0.6,
+        opacity: 0.4,
+        text: 'K I N D E E M',
+        textSize: Jimp.FONT_SANS_64_BLACK,
+    }
+
     let results = req.files.map(async file=>{
         const imagePath = file.path
         const main = await Jimp.read(imagePath);
        
         return main.quality(100).write(imagePath);
     })
-
+    
     await Promise.all(results)
     next()
 }
