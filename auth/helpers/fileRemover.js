@@ -11,7 +11,7 @@ module.exports = files => {
                                 if (err) throw err;
                                 res();
                             });
-                        }, 100);
+                        }, 10000);
                     } catch (err) {
                         console.error(err);
                         rej(err);
