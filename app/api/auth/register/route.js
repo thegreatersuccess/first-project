@@ -1,16 +1,25 @@
 import { NextResponse } from 'next/server';
-import dbConnect from '../../utils/db';
-import User from '../../models/user';
+import { connectToDatabase } from '@/lib/db';
+import { sendVerificationEmail } from '@/lib/email';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 
-export async function POST(req) {
+export async function POST(request) {
   try {
-    await dbConnect();
-    const { name, email, password, role } = await req.json();
+    const { name, email, password, role } = await request.json();
+
+    if (!name || !email || !password || !role) {
+      return NextResponse.json(
+        { error: 'All fields are required' },
+        { status: 400 }
+      );
+    }
+
+    const db = await connectToDatabase();
+    const users = db.collection('users');
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await users.findOne({ email });
     if (existingUser) {
       return NextResponse.json(
         { error: 'User already exists' },
@@ -18,52 +27,40 @@ export async function POST(req) {
       );
     }
 
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    // Create new user
-    const user = new User({
+    // Create user
+    const result = await users.insertOne({
       name,
       email,
-      password,
+      password: hashedPassword,
       role,
+      isVerified: false,
       verificationToken,
-      status: 'pending'
+      verificationTokenExpiry,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
-
-    await user.save();
 
     // Send verification email
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD
-      }
-    });
-
-    const verificationUrl = `${process.env.NEXT_PUBLIC_APP_URL}/verify-email?token=${verificationToken}`;
-    
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Verify your email address',
-      html: `
-        <h1>Welcome to Shifa.AI</h1>
-        <p>Please click the link below to verify your email address:</p>
-        <a href="${verificationUrl}">${verificationUrl}</a>
-        <p>If you did not create an account, please ignore this email.</p>
-      `
-    });
+    await sendVerificationEmail(email, verificationToken);
 
     return NextResponse.json(
-      { message: 'Registration successful. Please check your email to verify your account.' },
+      {
+        message: 'User registered successfully. Please check your email to verify your account.',
+        userId: result.insertedId,
+      },
       { status: 201 }
     );
   } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json(
-      { error: 'Error registering user' },
+      { error: 'Failed to register user' },
       { status: 500 }
     );
   }
